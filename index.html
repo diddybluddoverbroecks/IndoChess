@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IndoChess</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="https://unpkg.com/chessboard-element?module"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">♞</span>
+        <span class="brand-name">Indo<span>Chess</span></span>
+      </div>
+      <div id="status-pill" class="status-pill">Ready</div>
+    </header>
+
+    <!-- LOBBY CARD -->
+    <section id="lobby" class="panel lobby-panel">
+      <div class="lobby-head">
+        <h1>IndoChess</h1>
+        <p>Choose a bot rating or create a live room for two players.</p>
+      </div>
+
+      <div class="lobby-grid">
+        <!-- BOT CARD -->
+        <div class="soft-card">
+          <div class="card-header">
+            <h2>Play vs Bot</h2>
+            <span class="tag">Stockfish</span>
+          </div>
+
+          <div class="field">
+            <label for="elo-slider">Bot Rating: <strong id="elo-display">1200</strong> ELO</label>
+            <input type="range" id="elo-slider" min="400" max="2800" step="50" value="1200" />
+            <div class="scale-hints">
+              <span>400 Beginner</span>
+              <span>1500 Club</span>
+              <span>2800 GM</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="bot-color">Play As</label>
+            <select id="bot-color" class="soft-select">
+              <option value="w">White</option>
+              <option value="b">Black</option>
+              <option value="random">Random Side</option>
+            </select>
+          </div>
+
+          <button id="start-bot-btn" class="soft-btn btn-green">Start Bot Game</button>
+        </div>
+
+        <!-- MULTIPLAYER CARD -->
+        <div class="soft-card">
+          <div class="card-header">
+            <h2>Play a Friend</h2>
+            <span class="tag tag-muted">Live Room</span>
+          </div>
+
+          <div class="field">
+            <label for="mp-color">Your Side</label>
+            <select id="mp-color" class="soft-select">
+              <option value="random">Random Side</option>
+              <option value="w">White</option>
+              <option value="b">Black</option>
+            </select>
+          </div>
+
+          <button id="create-room-btn" class="soft-btn btn-stone">Create Invite Room</button>
+
+          <div class="or-line"><span>or join with code</span></div>
+
+          <div class="join-row">
+            <input type="text" id="room-code-input" class="soft-input code-input" placeholder="ABCDE" maxlength="5" />
+            <button id="join-room-btn" class="soft-btn btn-green">Join</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="lobby-error" class="error-banner"></p>
+    </section>
+
+    <!-- GAME ARENA -->
+    <main id="arena" class="arena hidden">
+      <div class="board-col">
+        <div class="player-bar top-bar">
+          <div class="player-meta">
+            <span class="avatar">♟</span>
+            <span id="opponent-name">Opponent</span>
+          </div>
+          <span id="room-badge" class="room-badge hidden"></span>
+        </div>
+
+        <div class="board-frame">
+          <chess-board id="board" draggable-pieces></chess-board>
+        </div>
+
+        <div class="player-bar bottom-bar">
+          <div class="player-meta">
+            <span class="avatar you-avatar">♙</span>
+            <span id="player-name">You</span>
+          </div>
+          <span id="turn-label" class="turn-label">White to move</span>
+        </div>
+      </div>
+
+      <!-- RIGHT PANEL: MOVES + CHAT -->
+      <aside class="panel side-panel">
+        <div class="panel-section moves-section">
+          <div class="section-title">
+            <span>Move List</span>
+            <span id="move-count" class="muted-small">0 moves</span>
+          </div>
+          <div id="move-list" class="move-list"></div>
+        </div>
+
+        <div class="panel-section chat-section">
+          <div class="section-title">
+            <span>Game Chat</span>
+            <span class="muted-small">Live</span>
+          </div>
+
+          <!-- Private ephemeral hint banner (never added to chat history or sent over socket) -->
+          <div id="private-hint-banner" class="private-hint hidden">
+            <span id="private-hint-text"></span>
+            <button id="dismiss-hint-btn" type="button" class="hint-close" aria-label="Dismiss hint">×</button>
+          </div>
+
+          <div id="chat-messages" class="chat-messages"></div>
+
+          <form id="chat-form" class="chat-form" autocomplete="off">
+            <input
+              type="text"
+              id="chat-input"
+              class="soft-input chat-input"
+              placeholder="Send a message..."
+              maxlength="240"
+            />
+            <button type="submit" class="soft-btn btn-green send-btn">Send</button>
+          </form>
+        </div>
+
+        <div class="side-actions">
+          <button id="new-game-btn" type="button" class="soft-btn btn-soft-danger">New Game</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="client.js"></script>
+</body>
+</html>
