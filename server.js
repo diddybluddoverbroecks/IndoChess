@@ -6,108 +6,146 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-const rooms = new Map();
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 7).toUpperCase();
+// Single global live server state
+const globalMatch = {
+  chess: new Chess(),
+  players: { w: null, b: null }
+};
+
+function getPlayersSnapshot() {
+  return {
+    w: Boolean(globalMatch.players.w),
+    b: Boolean(globalMatch.players.b)
+  };
+}
+
+function broadcastState(extra = {}) {
+  io.emit('globalState', {
+    fen: globalMatch.chess.fen(),
+    history: globalMatch.chess.history(),
+    turn: globalMatch.chess.turn(),
+    isGameOver: globalMatch.chess.isGameOver(),
+    isCheckmate: globalMatch.chess.isCheckmate(),
+    isDraw: globalMatch.chess.isDraw(),
+    players: getPlayersSnapshot(),
+    ...extra
+  });
 }
 
 io.on('connection', (socket) => {
-  socket.on('createRoom', ({ preferredColor }) => {
-    const roomId = generateRoomCode();
-    const chess = new Chess();
+  // Send current seat availability immediately on connect
+  socket.emit('seatStatus', getPlayersSnapshot());
 
-    const hostColor = preferredColor === 'random'
-      ? (Math.random() < 0.5 ? 'w' : 'b')
-      : preferredColor;
-
-    rooms.set(roomId, {
-      chess,
-      players: {
-        [hostColor]: socket.id,
-        [hostColor === 'w' ? 'b' : 'w']: null
-      }
-    });
-
-    socket.join(roomId);
-    socket.emit('roomCreated', { roomId, color: hostColor, fen: chess.fen() });
-  });
-
-  socket.on('joinRoom', ({ roomId }) => {
-    const code = roomId.trim().toUpperCase();
-    const room = rooms.get(code);
-
-    if (!room) {
-      return socket.emit('errorMsg', 'Room not found.');
+  socket.on('joinGlobal', ({ preferredColor } = {}) => {
+    // Already seated?
+    if (globalMatch.players.w === socket.id) {
+      socket.emit('joinedGlobal', { role: 'w' });
+      broadcastState();
+      return;
+    }
+    if (globalMatch.players.b === socket.id) {
+      socket.emit('joinedGlobal', { role: 'b' });
+      broadcastState();
+      return;
     }
 
-    const openColor = !room.players.w ? 'w' : (!room.players.b ? 'b' : null);
-    if (!openColor) {
-      return socket.emit('errorMsg', 'Room is full.');
+    let assignedRole = 'spectator';
+
+    if (preferredColor === 'w' && !globalMatch.players.w) {
+      globalMatch.players.w = socket.id;
+      assignedRole = 'w';
+    } else if (preferredColor === 'b' && !globalMatch.players.b) {
+      globalMatch.players.b = socket.id;
+      assignedRole = 'b';
+    } else if (!globalMatch.players.w && !globalMatch.players.b) {
+      assignedRole = preferredColor === 'b' ? 'b' : (preferredColor === 'w' ? 'w' : (Math.random() < 0.5 ? 'w' : 'b'));
+      globalMatch.players[assignedRole] = socket.id;
+    } else if (!globalMatch.players.w) {
+      globalMatch.players.w = socket.id;
+      assignedRole = 'w';
+    } else if (!globalMatch.players.b) {
+      globalMatch.players.b = socket.id;
+      assignedRole = 'b';
     }
 
-    room.players[openColor] = socket.id;
-    socket.join(code);
-
-    io.to(code).emit('gameStart', {
-      roomId: code,
-      fen: room.chess.fen(),
-      players: room.players
-    });
+    socket.emit('joinedGlobal', { role: assignedRole });
+    broadcastState();
   });
 
-  socket.on('makeMove', ({ roomId, move }) => {
-    const room = rooms.get(roomId);
-    if (!room) return;
+  socket.on('leaveGlobal', () => {
+    let changed = false;
+    if (globalMatch.players.w === socket.id) {
+      globalMatch.players.w = null;
+      changed = true;
+    }
+    if (globalMatch.players.b === socket.id) {
+      globalMatch.players.b = null;
+      changed = true;
+    }
+    if (changed) {
+      broadcastState();
+    }
+  });
 
-    const turn = room.chess.turn();
-    if (room.players[turn] !== socket.id) return;
+  socket.on('resetGlobalGame', () => {
+    // Only seated players can reset the global board
+    if (globalMatch.players.w !== socket.id && globalMatch.players.b !== socket.id) return;
+    globalMatch.chess.reset();
+    broadcastState();
+  });
+
+  socket.on('makeMove', ({ move }) => {
+    const turn = globalMatch.chess.turn();
+    if (globalMatch.players[turn] !== socket.id) return;
 
     try {
-      const result = room.chess.move(move);
+      const result = globalMatch.chess.move(move);
       if (result) {
-        io.to(roomId).emit('boardUpdate', {
-          fen: room.chess.fen(),
-          lastMove: result,
-          isGameOver: room.chess.isGameOver(),
-          isCheckmate: room.chess.isCheckmate(),
-          isDraw: room.chess.isDraw(),
-          turn: room.chess.turn()
-        });
+        broadcastState({ lastMove: result });
       }
     } catch (e) {
       socket.emit('errorMsg', 'Illegal move.');
     }
   });
 
-  socket.on('chatMessage', ({ roomId, text }) => {
-    const room = rooms.get(roomId);
-    if (!room || typeof text !== 'string') return;
-
+  socket.on('chatMessage', ({ text }) => {
+    if (typeof text !== 'string') return;
     const trimmed = text.trim().slice(0, 240);
     if (!trimmed) return;
 
-    const senderColor =
-      room.players.w === socket.id ? 'White' :
-      room.players.b === socket.id ? 'Black' : 'Spectator';
+    const sender =
+      globalMatch.players.w === socket.id ? 'White' :
+      globalMatch.players.b === socket.id ? 'Black' : 'Spectator';
 
-    io.to(roomId).emit('chatMessage', {
-      sender: senderColor,
+    io.emit('chatMessage', {
+      sender,
       text: trimmed,
       ts: Date.now()
     });
   });
 
   socket.on('disconnect', () => {
-    for (const [roomId, room] of rooms.entries()) {
-      if (room.players.w === socket.id || room.players.b === socket.id) {
-        io.to(roomId).emit('opponentDisconnected');
-        rooms.delete(roomId);
-      }
+    let changed = false;
+    if (globalMatch.players.w === socket.id) {
+      globalMatch.players.w = null;
+      changed = true;
+    }
+    if (globalMatch.players.b === socket.id) {
+      globalMatch.players.b = null;
+      changed = true;
+    }
+    if (changed) {
+      broadcastState();
     }
   });
 });

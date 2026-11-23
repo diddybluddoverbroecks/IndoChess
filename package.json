@@ -1,7 +1,7 @@
 {
   "name": "indochess",
-  "version": "1.2.0",
-  "description": "IndoChess - Chess.com-style multiplayer and ELO-calibrated bot chess",
+  "version": "2.0.0",
+  "description": "IndoChess - Single-server live multiplayer & Stockfish bot chess",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

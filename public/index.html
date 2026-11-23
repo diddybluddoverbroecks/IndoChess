@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IndoChess</title>
   <link rel="stylesheet" href="style.css" />
-  <script type="module" src="https://unpkg.com/chessboard-element?module"></script>
 </head>
 <body>
   <div class="shell">
@@ -21,7 +20,7 @@
     <section id="lobby" class="panel lobby-panel">
       <div class="lobby-head">
         <h1>IndoChess</h1>
-        <p>Choose a bot rating or create a live room for two players.</p>
+        <p>Play against Stockfish or jump straight into the live server.</p>
       </div>
 
       <div class="lobby-grid">
@@ -54,30 +53,25 @@
           <button id="start-bot-btn" class="soft-btn btn-green">Start Bot Game</button>
         </div>
 
-        <!-- MULTIPLAYER CARD -->
+        <!-- SINGLE GLOBAL SERVER CARD -->
         <div class="soft-card">
           <div class="card-header">
-            <h2>Play a Friend</h2>
-            <span class="tag tag-muted">Live Room</span>
+            <h2>Play Online</h2>
+            <span id="server-seat-tag" class="tag tag-muted">0/2 Seated</span>
           </div>
 
+          <p class="card-desc">One shared live server—no room codes needed. First two players take White & Black; anyone else watches live.</p>
+
           <div class="field">
-            <label for="mp-color">Your Side</label>
+            <label for="mp-color">Preferred Side</label>
             <select id="mp-color" class="soft-select">
-              <option value="random">Random Side</option>
+              <option value="random">Auto / Random</option>
               <option value="w">White</option>
               <option value="b">Black</option>
             </select>
           </div>
 
-          <button id="create-room-btn" class="soft-btn btn-stone">Create Invite Room</button>
-
-          <div class="or-line"><span>or join with code</span></div>
-
-          <div class="join-row">
-            <input type="text" id="room-code-input" class="soft-input code-input" placeholder="ABCDE" maxlength="5" />
-            <button id="join-room-btn" class="soft-btn btn-green">Join</button>
-          </div>
+          <button id="join-global-btn" class="soft-btn btn-green">Join Live Server</button>
         </div>
       </div>
 
@@ -92,11 +86,11 @@
             <span class="avatar">♟</span>
             <span id="opponent-name">Opponent</span>
           </div>
-          <span id="room-badge" class="room-badge hidden"></span>
+          <span id="mode-badge" class="room-badge">LIVE SERVER</span>
         </div>
 
         <div class="board-frame">
-          <chess-board id="board" draggable-pieces></chess-board>
+          <div id="custom-board" class="chessboard" aria-label="Chess Board"></div>
         </div>
 
         <div class="player-bar bottom-bar">
@@ -145,7 +139,8 @@
         </div>
 
         <div class="side-actions">
-          <button id="new-game-btn" type="button" class="soft-btn btn-soft-danger">New Game</button>
+          <button id="reset-board-btn" type="button" class="soft-btn btn-stone hidden">Reset Board</button>
+          <button id="new-game-btn" type="button" class="soft-btn btn-soft-danger">Leave Match</button>
         </div>
       </aside>
     </main>
