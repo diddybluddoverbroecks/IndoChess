@@ -20,6 +20,7 @@
   --sq-light: #eeeed2;
   --sq-dark: #769656;
   --sq-highlight: rgba(246, 246, 105, 0.55);
+  --sq-premove: rgba(235, 97, 80, 0.68);
   --radius-lg: 14px;
   --radius-md: 10px;
   --radius-sm: 8px;
@@ -326,7 +327,7 @@ input[type="range"] {
   font-weight: 600;
 }
 
-/* CUSTOM CHESSBOARD WITH RELIABLE SVG PIECES */
+/* CUSTOM CHESSBOARD */
 .board-frame {
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -368,6 +369,15 @@ input[type="range"] {
   position: absolute;
   inset: 0;
   background: var(--sq-highlight);
+  pointer-events: none;
+}
+
+/* Chess.com-style red premove highlight */
+.square.premove-square::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--sq-premove);
   pointer-events: none;
 }
 

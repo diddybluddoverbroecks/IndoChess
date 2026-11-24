@@ -43,11 +43,9 @@ function broadcastState(extra = {}) {
 }
 
 io.on('connection', (socket) => {
-  // Send current seat availability immediately on connect
   socket.emit('seatStatus', getPlayersSnapshot());
 
   socket.on('joinGlobal', ({ preferredColor } = {}) => {
-    // Already seated?
     if (globalMatch.players.w === socket.id) {
       socket.emit('joinedGlobal', { role: 'w' });
       broadcastState();
@@ -98,7 +96,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('resetGlobalGame', () => {
-    // Only seated players can reset the global board
     if (globalMatch.players.w !== socket.id && globalMatch.players.b !== socket.id) return;
     globalMatch.chess.reset();
     broadcastState();

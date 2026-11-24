@@ -3,7 +3,6 @@ import { Chess } from 'https://esm.sh/chess.js@1.0.0-beta.8';
 const socket = io();
 const game = new Chess();
 
-// Reliable Wikimedia Commons Cburnett SVG piece URLs (never fail to load)
 const PIECE_IMAGES = {
   wP: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
   wR: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
@@ -52,6 +51,7 @@ let hintWorker = null;
 let selectedSquare = null;
 let legalTargets = [];
 let lastMoveSquares = [];
+let queuedPremove = null; // { from, to, promotion }
 
 eloSlider.addEventListener('input', (e) => {
   targetElo = parseInt(e.target.value, 10);
@@ -173,7 +173,117 @@ function triggerBotMove() {
   }
 }
 
-// Custom Board Rendering (click-to-move AND drag-and-drop)
+// Premove helpers
+function clearPremove() {
+  queuedPremove = null;
+}
+
+function isPseudoLegalPremove(from, to) {
+  const piece = game.get(from);
+  if (!piece || piece.color !== playerColor) return false;
+  if (from === to) return false;
+
+  const targetPiece = game.get(to);
+  if (targetPiece && targetPiece.color === playerColor) return false;
+
+  const f1 = from.charCodeAt(0) - 97;
+  const r1 = parseInt(from[1], 10);
+  const f2 = to.charCodeAt(0) - 97;
+  const r2 = parseInt(to[1], 10);
+  const df = f2 - f1;
+  const dr = r2 - r1;
+  const adf = Math.abs(df);
+  const adr = Math.abs(dr);
+
+  switch (piece.type) {
+    case 'p': {
+      const dir = piece.color === 'w' ? 1 : -1;
+      const startRank = piece.color === 'w' ? 2 : 7;
+      if (df === 0 && dr === dir && !targetPiece) return true;
+      if (df === 0 && r1 === startRank && dr === 2 * dir && !targetPiece) {
+        const midSq = `${from[0]}${r1 + dir}`;
+        if (!game.get(midSq)) return true;
+      }
+      if (adf === 1 && dr === dir) return true; // Allows premoving captures/en-passant
+      return false;
+    }
+    case 'n':
+      return (adf === 1 && adr === 2) || (adf === 2 && adr === 1);
+    case 'b':
+      return adf === adr && adf > 0 && isPathClear(f1, r1, f2, r2);
+    case 'r':
+      return (df === 0 || dr === 0) && (adf + adr > 0) && isPathClear(f1, r1, f2, r2);
+    case 'q':
+      return ((adf === adr) || df === 0 || dr === 0) && (adf + adr > 0) && isPathClear(f1, r1, f2, r2);
+    case 'k':
+      if (adf <= 1 && adr <= 1) return true;
+      if (dr === 0 && adf === 2) return true; // Castling premove
+      return false;
+    default:
+      return false;
+  }
+}
+
+function isPathClear(f1, r1, f2, r2) {
+  const stepF = Math.sign(f2 - f1);
+  const stepR = Math.sign(r2 - r1);
+  let cf = f1 + stepF;
+  let cr = r1 + stepR;
+  while (cf !== f2 || cr !== r2) {
+    const sq = `${String.fromCharCode(97 + cf)}${cr}`;
+    if (game.get(sq)) return false;
+    cf += stepF;
+    cr += stepR;
+  }
+  return true;
+}
+
+function tryExecuteQueuedPremove() {
+  if (!queuedPremove) return false;
+  if (game.isGameOver()) {
+    clearPremove();
+    return false;
+  }
+  if (game.turn() !== playerColor) return false;
+
+  const pm = queuedPremove;
+  clearPremove();
+
+  if (mode === 'bot') {
+    try {
+      const moved = game.move(pm);
+      if (moved) {
+        lastMoveSquares = [moved.from, moved.to];
+        privateHintBanner.classList.add('hidden');
+        syncBoard();
+        setTimeout(triggerBotMove, 180);
+        return true;
+      }
+    } catch {
+      // Premove became illegal after opponent move
+    }
+    return false;
+  }
+
+  if (mode === 'global') {
+    const probe = new Chess(game.fen());
+    try {
+      const valid = probe.move(pm);
+      if (valid) {
+        privateHintBanner.classList.add('hidden');
+        socket.emit('makeMove', { move: pm });
+        return true;
+      }
+    } catch {
+      // Premove became illegal after opponent move
+    }
+    return false;
+  }
+
+  return false;
+}
+
+// Custom Board Rendering (click-to-move, drag-and-drop, and premoves)
 function renderBoard() {
   boardEl.innerHTML = '';
   const files = orientation === 'w'
@@ -197,6 +307,9 @@ function renderBoard() {
 
       if (selectedSquare === sq) sqDiv.classList.add('selected');
       if (lastMoveSquares.includes(sq)) sqDiv.classList.add('last-move');
+      if (queuedPremove && (queuedPremove.from === sq || queuedPremove.to === sq)) {
+        sqDiv.classList.add('premove-square');
+      }
 
       const targetMatch = legalTargets.find((m) => m.to === sq);
       if (targetMatch) {
@@ -224,10 +337,10 @@ function renderBoard() {
         img.src = PIECE_IMAGES[key];
         img.alt = key;
         img.className = 'piece-img';
-        img.draggable = canInteractWithPiece(piece.color);
+        img.draggable = canQueuePiece(piece.color);
 
         img.addEventListener('dragstart', (e) => {
-          if (!canInteractWithPiece(piece.color)) {
+          if (!canQueuePiece(piece.color)) {
             e.preventDefault();
             return;
           }
@@ -243,7 +356,16 @@ function renderBoard() {
         e.preventDefault();
         const fromSq = e.dataTransfer.getData('text/plain');
         if (fromSq && fromSq !== sq) {
-          attemptMove(fromSq, sq);
+          handleMoveOrPremove(fromSq, sq);
+        }
+      });
+
+      sqDiv.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (queuedPremove) {
+          clearPremove();
+          clearSelection();
+          syncBoard();
         }
       });
 
@@ -254,16 +376,19 @@ function renderBoard() {
   }
 }
 
-function canInteractWithPiece(pieceColor) {
+function canQueuePiece(pieceColor) {
   if (game.isGameOver()) return false;
   if (playerColor !== 'w' && playerColor !== 'b') return false;
-  if (game.turn() !== playerColor) return false;
   return pieceColor === playerColor;
 }
 
 function selectSquare(sq) {
   selectedSquare = sq;
-  legalTargets = game.moves({ square: sq, verbose: true });
+  if (game.turn() === playerColor) {
+    legalTargets = game.moves({ square: sq, verbose: true });
+  } else {
+    legalTargets = [];
+  }
   renderBoard();
 }
 
@@ -275,61 +400,78 @@ function clearSelection() {
 function handleSquareClick(sq) {
   if (game.isGameOver()) return;
   if (playerColor !== 'w' && playerColor !== 'b') return;
-  if (game.turn() !== playerColor) return;
 
   if (selectedSquare) {
-    const isLegalTarget = legalTargets.some((m) => m.to === sq);
-    if (isLegalTarget) {
-      attemptMove(selectedSquare, sq);
+    if (selectedSquare === sq) {
+      clearSelection();
+      renderBoard();
+      return;
+    }
+    const pieceOnSelected = game.get(selectedSquare);
+    if (pieceOnSelected && pieceOnSelected.color === playerColor) {
+      handleMoveOrPremove(selectedSquare, sq);
       return;
     }
   }
 
   const piece = game.get(sq);
-  if (piece && canInteractWithPiece(piece.color)) {
-    if (selectedSquare === sq) {
-      clearSelection();
-      renderBoard();
-    } else {
-      selectSquare(sq);
-    }
+  if (piece && canQueuePiece(piece.color)) {
+    selectSquare(sq);
   } else {
     clearSelection();
     renderBoard();
   }
 }
 
-function attemptMove(from, to) {
+function handleMoveOrPremove(from, to) {
   const moveObj = { from, to, promotion: 'q' };
   clearSelection();
 
-  if (mode === 'bot') {
-    try {
-      const move = game.move(moveObj);
-      if (!move) {
+  if (game.turn() === playerColor) {
+    clearPremove();
+    if (mode === 'bot') {
+      try {
+        const move = game.move(moveObj);
+        if (!move) {
+          renderBoard();
+          return;
+        }
+        lastMoveSquares = [move.from, move.to];
+        privateHintBanner.classList.add('hidden');
+        syncBoard();
+        setTimeout(triggerBotMove, 220);
+      } catch {
         renderBoard();
-        return;
       }
-      lastMoveSquares = [move.from, move.to];
-      privateHintBanner.classList.add('hidden');
-      syncBoard();
-      setTimeout(triggerBotMove, 220);
-    } catch {
-      renderBoard();
-    }
-  } else if (mode === 'global') {
-    const temp = new Chess(game.fen());
-    try {
-      const valid = temp.move(moveObj);
-      if (!valid) {
+    } else if (mode === 'global') {
+      const temp = new Chess(game.fen());
+      try {
+        const valid = temp.move(moveObj);
+        if (!valid) {
+          renderBoard();
+          return;
+        }
+        privateHintBanner.classList.add('hidden');
+        socket.emit('makeMove', { move: moveObj });
+      } catch {
         renderBoard();
-        return;
       }
-      privateHintBanner.classList.add('hidden');
-      socket.emit('makeMove', { move: moveObj });
-    } catch {
-      renderBoard();
     }
+    return;
+  }
+
+  // Opponent's turn -> queue premove if pseudo-legal
+  if (queuedPremove && queuedPremove.from === from && queuedPremove.to === to) {
+    clearPremove();
+    renderBoard();
+    return;
+  }
+
+  if (isPseudoLegalPremove(from, to)) {
+    queuedPremove = moveObj;
+    syncBoard();
+  } else {
+    renderBoard();
   }
 }
 
@@ -338,6 +480,7 @@ function enterArena({ matchMode, role, opponentText, badgeText }) {
   playerColor = role;
   orientation = role === 'b' ? 'b' : 'w';
   clearSelection();
+  clearPremove();
   lastMoveSquares = [];
 
   lobby.classList.add('hidden');
@@ -367,10 +510,16 @@ function enterArena({ matchMode, role, opponentText, badgeText }) {
 }
 
 function syncBoard() {
+  if (!game.isGameOver() && game.turn() === playerColor && queuedPremove) {
+    const executed = tryExecuteQueuedPremove();
+    if (executed) return;
+  }
+
   renderBoard();
   renderMoves();
 
   if (game.isGameOver()) {
+    clearPremove();
     if (game.isCheckmate()) {
       const winner = game.turn() === 'w' ? 'Black' : 'White';
       statusPill.textContent = `Checkmate • ${winner} wins`;
@@ -386,8 +535,12 @@ function syncBoard() {
 
   if (playerColor === 'spectator') {
     statusPill.textContent = `Watching • ${turnSide} turn`;
+  } else if (game.turn() === playerColor) {
+    statusPill.textContent = 'Your turn';
+  } else if (queuedPremove) {
+    statusPill.textContent = `Premove: ${queuedPremove.from}→${queuedPremove.to}`;
   } else {
-    statusPill.textContent = game.turn() === playerColor ? 'Your turn' : 'Opponent turn';
+    statusPill.textContent = 'Opponent turn';
   }
 }
 
@@ -463,6 +616,7 @@ document.getElementById('join-global-btn').addEventListener('click', () => {
 });
 
 resetBoardBtn.addEventListener('click', () => {
+  clearPremove();
   socket.emit('resetGlobalGame');
 });
 
@@ -502,6 +656,7 @@ socket.on('globalState', ({ fen, players, lastMove }) => {
     lastMoveSquares = [lastMove.from, lastMove.to];
   } else if (game.history().length === 0) {
     lastMoveSquares = [];
+    clearPremove();
   }
 
   if (playerColor === 'w') {
