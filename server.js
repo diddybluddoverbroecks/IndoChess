@@ -16,10 +16,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Single global live server state
 const globalMatch = {
   chess: new Chess(),
-  players: { w: null, b: null }
+  players: { w: null, b: null },
+  resignedBy: null, // 'w' | 'b' | null
+  pendingUndoFrom: null // 'w' | 'b' | null
 };
 
 function getPlayersSnapshot() {
@@ -30,13 +31,16 @@ function getPlayersSnapshot() {
 }
 
 function broadcastState(extra = {}) {
+  const isResigned = Boolean(globalMatch.resignedBy);
   io.emit('globalState', {
     fen: globalMatch.chess.fen(),
     history: globalMatch.chess.history(),
     turn: globalMatch.chess.turn(),
-    isGameOver: globalMatch.chess.isGameOver(),
+    isGameOver: globalMatch.chess.isGameOver() || isResigned,
     isCheckmate: globalMatch.chess.isCheckmate(),
-    isDraw: globalMatch.chess.isDraw(),
+    isDraw: !isResigned && globalMatch.chess.isDraw(),
+    resignedBy: globalMatch.resignedBy,
+    pendingUndoFrom: globalMatch.pendingUndoFrom,
     players: getPlayersSnapshot(),
     ...extra
   });
@@ -91,6 +95,7 @@ io.on('connection', (socket) => {
       changed = true;
     }
     if (changed) {
+      globalMatch.pendingUndoFrom = null;
       broadcastState();
     }
   });
@@ -98,21 +103,72 @@ io.on('connection', (socket) => {
   socket.on('resetGlobalGame', () => {
     if (globalMatch.players.w !== socket.id && globalMatch.players.b !== socket.id) return;
     globalMatch.chess.reset();
+    globalMatch.resignedBy = null;
+    globalMatch.pendingUndoFrom = null;
     broadcastState();
   });
 
   socket.on('makeMove', ({ move }) => {
+    if (globalMatch.resignedBy || globalMatch.chess.isGameOver()) return;
     const turn = globalMatch.chess.turn();
     if (globalMatch.players[turn] !== socket.id) return;
 
     try {
       const result = globalMatch.chess.move(move);
       if (result) {
+        globalMatch.pendingUndoFrom = null;
         broadcastState({ lastMove: result });
       }
     } catch (e) {
       socket.emit('errorMsg', 'Illegal move.');
     }
+  });
+
+  socket.on('requestUndo', () => {
+    if (globalMatch.resignedBy || globalMatch.chess.isGameOver()) return;
+    if (globalMatch.chess.history().length === 0) return;
+
+    const requesterColor =
+      globalMatch.players.w === socket.id ? 'w' :
+      globalMatch.players.b === socket.id ? 'b' : null;
+    if (!requesterColor) return;
+
+    const opponentColor = requesterColor === 'w' ? 'b' : 'w';
+    if (!globalMatch.players[opponentColor]) {
+      socket.emit('errorMsg', 'Opponent must be seated to agree to an undo.');
+      return;
+    }
+
+    if (globalMatch.pendingUndoFrom === requesterColor) return;
+
+    globalMatch.pendingUndoFrom = requesterColor;
+    broadcastState();
+  });
+
+  socket.on('respondUndo', ({ accept }) => {
+    if (!globalMatch.pendingUndoFrom) return;
+    const responderColor =
+      globalMatch.players.w === socket.id ? 'w' :
+      globalMatch.players.b === socket.id ? 'b' : null;
+    if (!responderColor || responderColor === globalMatch.pendingUndoFrom) return;
+
+    globalMatch.pendingUndoFrom = null;
+    if (accept) {
+      globalMatch.chess.undo();
+    }
+    broadcastState({ undoAccepted: Boolean(accept) });
+  });
+
+  socket.on('resignGame', () => {
+    if (globalMatch.resignedBy || globalMatch.chess.isGameOver()) return;
+    const resignerColor =
+      globalMatch.players.w === socket.id ? 'w' :
+      globalMatch.players.b === socket.id ? 'b' : null;
+    if (!resignerColor) return;
+
+    globalMatch.resignedBy = resignerColor;
+    globalMatch.pendingUndoFrom = null;
+    broadcastState();
   });
 
   socket.on('chatMessage', ({ text }) => {
@@ -142,6 +198,7 @@ io.on('connection', (socket) => {
       changed = true;
     }
     if (changed) {
+      globalMatch.pendingUndoFrom = null;
       broadcastState();
     }
   });

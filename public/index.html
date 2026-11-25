@@ -20,7 +20,7 @@
     <section id="lobby" class="panel lobby-panel">
       <div class="lobby-head">
         <h1>IndoChess</h1>
-        <p>Play against Stockfish or jump straight into the live server.</p>
+        <p>Play calibrated bots, face Snithik, or jump straight into the live server.</p>
       </div>
 
       <div class="lobby-grid">
@@ -28,7 +28,7 @@
         <div class="soft-card">
           <div class="card-header">
             <h2>Play vs Bot</h2>
-            <span class="tag">Stockfish</span>
+            <span class="tag">Calibrated ELO</span>
           </div>
 
           <div class="field">
@@ -51,6 +51,32 @@
           </div>
 
           <button id="start-bot-btn" class="soft-btn btn-green">Start Bot Game</button>
+
+          <!-- MYSTERIOUS SNITHIK BOSS BUTTON -->
+          <button id="against-snithik-btn" class="soft-btn btn-snithik" type="button">
+            <span class="snithik-emblem" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="26" height="26">
+                <defs>
+                  <radialGradient id="snithikAura" cx="50%" cy="45%" r="52%">
+                    <stop offset="0%" stop-color="#a855f7" stop-opacity="0.7" />
+                    <stop offset="65%" stop-color="#3b0764" stop-opacity="0.25" />
+                    <stop offset="100%" stop-color="#09090b" stop-opacity="0" />
+                  </radialGradient>
+                </defs>
+                <circle cx="32" cy="32" r="30" fill="url(#snithikAura)" />
+                <!-- Crowned King-Pawn silhouette -->
+                <path d="M32 6 L34.5 11 L40 9 L37.5 14.5 L26.5 14.5 L24 9 L29.5 11 Z" fill="#c084fc" />
+                <circle cx="32" cy="22" r="7.5" fill="#0c0a12" stroke="#a855f7" stroke-width="2" />
+                <!-- Glowing mysterious eyes -->
+                <ellipse cx="29.3" cy="21.5" rx="1.5" ry="0.9" fill="#e879f9" />
+                <ellipse cx="34.7" cy="21.5" rx="1.5" ry="0.9" fill="#e879f9" />
+                <!-- Cloaked pawn body -->
+                <path d="M23 31 C23 28.5, 41 28.5, 41 31 L45 48 L19 48 Z" fill="#0c0a12" stroke="#9333ea" stroke-width="2" stroke-linejoin="round" />
+                <rect x="15" y="48" width="34" height="6" rx="3" fill="#0c0a12" stroke="#a855f7" stroke-width="2" />
+              </svg>
+            </span>
+            <span class="snithik-label">Against Snithik</span>
+          </button>
         </div>
 
         <!-- SINGLE GLOBAL SERVER CARD -->
@@ -83,7 +109,7 @@
       <div class="board-col">
         <div class="player-bar top-bar">
           <div class="player-meta">
-            <span class="avatar">♟</span>
+            <span id="opponent-avatar" class="avatar">♟</span>
             <span id="opponent-name">Opponent</span>
           </div>
           <span id="mode-badge" class="room-badge">LIVE SERVER</span>
@@ -91,6 +117,19 @@
 
         <div class="board-frame">
           <div id="custom-board" class="chessboard" aria-label="Chess Board"></div>
+          <!-- SVG overlay for instant Chess.com-style hint arrows -->
+          <svg id="arrow-overlay" class="arrow-overlay" viewBox="0 0 800 800" preserveAspectRatio="none"></svg>
+
+          <!-- Checkmate / Game Over Celebration Overlay -->
+          <div id="gameover-overlay" class="gameover-overlay hidden">
+            <div id="confetti-layer" class="confetti-layer"></div>
+            <div class="gameover-card">
+              <div id="gameover-crown" class="gameover-crown">♛</div>
+              <h2 id="gameover-title">Checkmate!</h2>
+              <p id="gameover-subtitle">White wins the match</p>
+              <button id="dismiss-gameover-btn" type="button" class="soft-btn btn-green">View Board</button>
+            </div>
+          </div>
         </div>
 
         <div class="player-bar bottom-bar">
@@ -102,7 +141,7 @@
         </div>
       </div>
 
-      <!-- RIGHT PANEL: MOVES + CHAT -->
+      <!-- RIGHT PANEL: MOVES + CHAT + CONTROLS -->
       <aside class="panel side-panel">
         <div class="panel-section moves-section">
           <div class="section-title">
@@ -118,9 +157,13 @@
             <span class="muted-small">Live</span>
           </div>
 
-          <div id="private-hint-banner" class="private-hint hidden">
-            <span id="private-hint-text"></span>
-            <button id="dismiss-hint-btn" type="button" class="hint-close" aria-label="Dismiss hint">×</button>
+          <!-- Mutual Undo Request Prompt -->
+          <div id="undo-request-banner" class="undo-banner hidden">
+            <span id="undo-request-text">Opponent wants to undo last move.</span>
+            <div class="undo-banner-btns">
+              <button id="accept-undo-btn" type="button" class="mini-btn mini-accept">Accept</button>
+              <button id="decline-undo-btn" type="button" class="mini-btn mini-decline">Decline</button>
+            </div>
           </div>
 
           <div id="chat-messages" class="chat-messages"></div>
@@ -138,6 +181,10 @@
         </div>
 
         <div class="side-actions">
+          <div id="match-controls-row" class="controls-row hidden">
+            <button id="undo-btn" type="button" class="soft-btn btn-stone">↺ Undo</button>
+            <button id="resign-btn" type="button" class="soft-btn btn-stone btn-resign-tone">🏳 Resign</button>
+          </div>
           <button id="reset-board-btn" type="button" class="soft-btn btn-stone hidden">Reset Board</button>
           <button id="new-game-btn" type="button" class="soft-btn btn-soft-danger">Leave Match</button>
         </div>

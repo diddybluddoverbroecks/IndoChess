@@ -3,10 +3,12 @@
 Node.js chess web application ready for Render deployment.
 
 ## Features
-- Chess.com-inspired dark charcoal UI with custom SVG piece rendering (supports both click-to-move and drag-and-drop).
-- Chess.com-style premoves (red highlights, right-click or re-click to cancel, automatic execution when your turn starts).
-- Single shared live multiplayer server (no room codes required) + Stockfish bot with adjustable ELO (400–2800).
-- Hidden `gui` command in chat: privately calculates and displays the best move without posting to chat.
+- Chess.com-inspired dark charcoal UI with custom SVG piece rendering (click-to-move, drag-and-drop, and premoves).
+- Calibrated bot ELO scaling (400–2800) using Skill Level and MultiPV error calibration.
+- **Against Snithik** mode: custom glowing black king-pawn emblem, full-strength Stockfish engine, and zero ELO displayed.
+- Single shared live multiplayer server with mutual-consent Undo and Resign buttons.
+- Hidden `gui` command in chat: draws an instant translucent green best-move arrow directly on the board.
+- Checkmate confetti and floating crown celebration overlay.
 
 ## Run Locally
 ```bash
